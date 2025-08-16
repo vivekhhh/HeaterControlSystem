@@ -32,7 +32,8 @@ This project implements a heater controller using an ESP32 and a DS18B20 digital
 4. Observe state transitions as temperature changes
 
 ## Block Diagram
-(Insert circuit_diagram.png here)
+<img width="735" height="361" alt="image" src="https://github.com/user-attachments/assets/31b76eca-c7d1-470c-99a4-e5952fdb66ac" />
+
 
 ## Wokwi Simulation
 https://wokwi.com/projects/439337980792678401
