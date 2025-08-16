@@ -1,0 +1,147 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#define ONE_WIRE_BUS 15
+#define HEATER_PIN 4
+#define BUZZER_PIN 5
+#define ALERT_LED_PIN 2     
+float targetTemp = 60.0;
+float hysteresis = 2.0;
+float overheatTemp = 70.0;
+float overheatRecovery = 68.0;
+enum State {IDLE, HEATING, STABILIZING, TARGET_REACHED, OVERHEAT};
+State currentState = IDLE;
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+String stateToString(State s) {
+  switch (s) {
+    case IDLE: return "IDLE";
+    case HEATING: return "HEATING";
+    case STABILIZING: return "STABILIZING";
+    case TARGET_REACHED: return "TARGET_REACHED";
+    case OVERHEAT: return "OVERHEAT";
+    default: return "UNKNOWN";
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  sensors.begin();
+
+  pinMode(HEATER_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  pinMode(ALERT_LED_PIN, OUTPUT);
+
+  digitalWrite(HEATER_PIN, LOW);
+  noTone(BUZZER_PIN);
+  digitalWrite(ALERT_LED_PIN, LOW);
+  Serial.println("ESP32 Heater Controller Started");
+
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+
+  if (tempC >= overheatTemp) {
+    currentState = OVERHEAT;
+  } 
+  else if (abs(tempC - targetTemp) <= 0.5 || (tempC > targetTemp && tempC <= targetTemp + 2)) {
+    currentState = TARGET_REACHED;
+  } 
+  else if (tempC > targetTemp + 2 && tempC < overheatTemp) {
+    currentState = TARGET_REACHED; 
+  } 
+  else if (tempC >= targetTemp - 1.5 && tempC < targetTemp - 0.5) {
+    currentState = STABILIZING;
+  } 
+  else if (tempC <= targetTemp - hysteresis) {
+    currentState = HEATING;
+    digitalWrite(HEATER_PIN, HIGH);
+  } 
+  else {
+    currentState = IDLE;
+  }
+
+  Serial.print("Initial Temp: ");
+  Serial.print(tempC);
+  Serial.print("°C  Starting State: ");
+  Serial.println(stateToString(currentState));
+}
+void loop() {
+  sensors.requestTemperatures();
+  float tempC = sensors.getTempCByIndex(0);
+  if (tempC >= overheatTemp) {
+    currentState = OVERHEAT;
+  }
+  switch (currentState) {
+
+    case IDLE:
+      digitalWrite(HEATER_PIN, LOW);
+      digitalWrite(ALERT_LED_PIN, LOW);
+      if (tempC <= targetTemp - hysteresis) {
+        currentState = HEATING;
+        digitalWrite(HEATER_PIN, HIGH);
+      }
+      break;
+
+    case HEATING:
+      digitalWrite(HEATER_PIN, HIGH);
+      digitalWrite(ALERT_LED_PIN, LOW);
+
+      if (tempC >= targetTemp - 1.5 && tempC < targetTemp - 0.5) {
+        currentState = STABILIZING;
+        digitalWrite(HEATER_PIN, LOW);
+      }
+      else if (tempC > targetTemp + 2 && tempC < overheatTemp) {
+        currentState = TARGET_REACHED;
+        digitalWrite(HEATER_PIN, LOW);
+      }
+      break;
+
+    case STABILIZING:
+      digitalWrite(HEATER_PIN, LOW);
+      digitalWrite(ALERT_LED_PIN, LOW);
+      if (abs(tempC - targetTemp) <= 0.5 || (tempC > targetTemp && tempC <= targetTemp + 2)) {
+        currentState = TARGET_REACHED;
+      }
+      else if (tempC <= targetTemp - hysteresis) {
+        currentState = HEATING;
+        digitalWrite(HEATER_PIN, HIGH);
+      }
+      else if (tempC > targetTemp + 2 && tempC < overheatTemp) {
+        currentState = TARGET_REACHED;
+      }
+      break;
+
+    case TARGET_REACHED:
+      digitalWrite(HEATER_PIN, LOW);
+      digitalWrite(ALERT_LED_PIN, LOW);
+      if (tempC <= targetTemp - hysteresis) {
+        currentState = HEATING;
+        digitalWrite(HEATER_PIN, HIGH);
+      }
+      break;
+
+    case OVERHEAT:
+      digitalWrite(HEATER_PIN, LOW);
+      tone(BUZZER_PIN, 1000);
+      digitalWrite(ALERT_LED_PIN, HIGH);
+      delay(200);
+      digitalWrite(ALERT_LED_PIN, LOW);
+      delay(200);
+
+      if (tempC < overheatRecovery) {
+        currentState = IDLE;
+        noTone(BUZZER_PIN);
+      }
+      break;
+  }
+
+  if (currentState != OVERHEAT) {
+    noTone(BUZZER_PIN);
+  }
+  Serial.print("Temp: ");
+  Serial.print(tempC);
+  Serial.print("°C  State: ");
+  Serial.println(stateToString(currentState));
+  if (currentState != OVERHEAT) {
+    delay(1000);
+  }
+}
